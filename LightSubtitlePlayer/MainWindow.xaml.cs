@@ -23,11 +23,26 @@ namespace LightSubtitlePlayer
         private readonly DispatcherTimer _watermarkFloatTimer = new();
 
         private bool _isDraggingSlider = false;
-        private bool _isDraggingSubtitle = false;
         private bool _isDraggingBlur = false;
-        private bool _isDraggingAttribution = false;
+        private Border? _activeDragBox = null;
         private Point _dragStartPoint;
         private double _origLeft, _origTop;
+        private bool _isUpdatingAttributionText = false;
+        private bool _isSyncingStyleControls = false;
+
+        // Lưu trữ cấu hình kiểu chữ, màu chữ & nền độc lập cho Phụ đề, Credit và Miễn trừ trách nhiệm
+        private class BoxStyleState
+        {
+            public int FontIndex { get; set; } = 0;
+            public int TextColorIndex { get; set; } = 0;
+            public double FontSize { get; set; } = 26;
+            public double BgOpacity { get; set; } = 0.5;
+            public int BgColorIndex { get; set; } = 0;
+        }
+
+        private readonly BoxStyleState _subtitleStyle = new() { FontIndex = 0, TextColorIndex = 0, FontSize = 26, BgOpacity = 0.5, BgColorIndex = 0 };
+        private readonly BoxStyleState _creditStyle = new() { FontIndex = 0, TextColorIndex = 0, FontSize = 18, BgOpacity = 0.5, BgColorIndex = 0 };
+        private readonly BoxStyleState _disclaimerStyle = new() { FontIndex = 0, TextColorIndex = 0, FontSize = 13, BgOpacity = 0.5, BgColorIndex = 0 };
 
         // Vận tốc & vị trí Watermark chạy tự do
         private double _wmVelocityX = 2.0;
@@ -50,7 +65,7 @@ namespace LightSubtitlePlayer
             Loaded += (s, e) =>
             {
                 UpdateAttributionDisplay();
-                CenterSubtitle();
+                CenterAllBoxesInitial();
             };
         }
 
@@ -159,8 +174,32 @@ namespace LightSubtitlePlayer
             double endSec = double.TryParse(InputCreditEnd.Text, out double ed) ? ed : 5;
             bool isInRange = cur.TotalSeconds >= startSec && cur.TotalSeconds <= endSec;
 
-            CreditContainer.Visibility = (ChkShowCredit.IsChecked == true && isInRange) ? Visibility.Visible : Visibility.Collapsed;
-            DisclaimerContainer.Visibility = (ChkShowDisclaimer.IsChecked == true && isInRange) ? Visibility.Visible : Visibility.Collapsed;
+            bool showCredit = ChkShowCredit.IsChecked == true && isInRange;
+            bool showDisclaimer = ChkShowDisclaimer.IsChecked == true && isInRange;
+
+            if (showCredit && CreditContainer.Visibility != Visibility.Visible)
+            {
+                CreditContainer.Visibility = Visibility.Visible;
+                CreditContainer.UpdateLayout();
+                if (double.IsNaN(Canvas.GetLeft(CreditContainer)))
+                    CenterHorizontalBox(CreditContainer, 65);
+            }
+            else if (!showCredit && CreditContainer.Visibility == Visibility.Visible)
+            {
+                CreditContainer.Visibility = Visibility.Collapsed;
+            }
+
+            if (showDisclaimer && DisclaimerContainer.Visibility != Visibility.Visible)
+            {
+                DisclaimerContainer.Visibility = Visibility.Visible;
+                DisclaimerContainer.UpdateLayout();
+                if (double.IsNaN(Canvas.GetLeft(DisclaimerContainer)))
+                    CenterHorizontalBox(DisclaimerContainer, 15);
+            }
+            else if (!showDisclaimer && DisclaimerContainer.Visibility == Visibility.Visible)
+            {
+                DisclaimerContainer.Visibility = Visibility.Collapsed;
+            }
 
             // Xử lý hiển thị phụ đề tương ứng
             if (_subtitles.Count > 0)
@@ -197,23 +236,34 @@ namespace LightSubtitlePlayer
             }
         }
 
-        // ================= KÉO THẢ PHỤ ĐỀ & CĂN TÂM TỰ HÍT =================
-        private void Subtitle_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+        // ================= KÉO THẢ & TỰ HÍT TÂM CHO CẢ PHỤ ĐỀ, CREDIT & DISCLAIMER =================
+        private void DraggableBox_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
         {
-            _isDraggingSubtitle = true;
-            _dragStartPoint = e.GetPosition(OverlayCanvas);
-            _origLeft = Canvas.GetLeft(SubtitleBox);
-            _origTop = Canvas.GetTop(SubtitleBox);
-            if (double.IsNaN(_origLeft)) _origLeft = 50;
-            if (double.IsNaN(_origTop)) _origTop = OverlayCanvas.ActualHeight - 80;
+            if (sender is Border box)
+            {
+                _activeDragBox = box;
+                _dragStartPoint = e.GetPosition(OverlayCanvas);
+                _origLeft = Canvas.GetLeft(box);
+                _origTop = Canvas.GetTop(box);
+                if (double.IsNaN(_origLeft)) _origLeft = (OverlayCanvas.ActualWidth - box.ActualWidth) / 2.0;
+                if (double.IsNaN(_origTop)) _origTop = 50;
 
-            SubtitleBox.CaptureMouse();
-            ShowGuideLines();
+                // Khi click vào hộp nào trên màn hình, tự động chuyển mục tùy chỉnh sang hộp đó
+                if (CmbStyleTarget != null && CmbStyleTarget.SelectedIndex != 3)
+                {
+                    if (box == SubtitleBox) CmbStyleTarget.SelectedIndex = 0;
+                    else if (box == CreditContainer) CmbStyleTarget.SelectedIndex = 1;
+                    else if (box == DisclaimerContainer) CmbStyleTarget.SelectedIndex = 2;
+                }
+
+                box.CaptureMouse();
+                ShowGuideLines();
+            }
         }
 
-        private void Subtitle_MouseMove(object sender, MouseEventArgs e)
+        private void DraggableBox_MouseMove(object sender, MouseEventArgs e)
         {
-            if (!_isDraggingSubtitle) return;
+            if (_activeDragBox == null) return;
 
             Point currentPoint = e.GetPosition(OverlayCanvas);
             double deltaX = currentPoint.X - _dragStartPoint.X;
@@ -222,15 +272,15 @@ namespace LightSubtitlePlayer
             double newLeft = _origLeft + deltaX;
             double newTop = _origTop + deltaY;
 
-            newLeft = Math.Max(0, Math.Min(newLeft, OverlayCanvas.ActualWidth - SubtitleBox.ActualWidth));
-            newTop = Math.Max(0, Math.Min(newTop, OverlayCanvas.ActualHeight - SubtitleBox.ActualHeight));
+            newLeft = Math.Max(0, Math.Min(newLeft, OverlayCanvas.ActualWidth - _activeDragBox.ActualWidth));
+            newTop = Math.Max(0, Math.Min(newTop, OverlayCanvas.ActualHeight - _activeDragBox.ActualHeight));
 
-            // Tự hít vào tâm dọc nếu lệch < 15px
+            // Tự hít vào tâm dọc & ngang nếu lệch < 15px
             double canvasMidX = OverlayCanvas.ActualWidth / 2.0;
-            double subMidX = newLeft + (SubtitleBox.ActualWidth / 2.0);
-            if (Math.Abs(canvasMidX - subMidX) < 15.0)
+            double boxMidX = newLeft + (_activeDragBox.ActualWidth / 2.0);
+            if (Math.Abs(canvasMidX - boxMidX) < 15.0)
             {
-                newLeft = canvasMidX - (SubtitleBox.ActualWidth / 2.0);
+                newLeft = canvasMidX - (_activeDragBox.ActualWidth / 2.0);
                 GuideLineVertical.Stroke = new SolidColorBrush(Color.FromRgb(78, 201, 176));
             }
             else
@@ -238,16 +288,28 @@ namespace LightSubtitlePlayer
                 GuideLineVertical.Stroke = new SolidColorBrush(Color.FromRgb(0, 122, 204));
             }
 
-            Canvas.SetLeft(SubtitleBox, newLeft);
-            Canvas.SetTop(SubtitleBox, newTop);
+            double canvasMidY = OverlayCanvas.ActualHeight / 2.0;
+            double boxMidY = newTop + (_activeDragBox.ActualHeight / 2.0);
+            if (Math.Abs(canvasMidY - boxMidY) < 15.0)
+            {
+                newTop = canvasMidY - (_activeDragBox.ActualHeight / 2.0);
+                GuideLineHorizontal.Stroke = new SolidColorBrush(Color.FromRgb(78, 201, 176));
+            }
+            else
+            {
+                GuideLineHorizontal.Stroke = new SolidColorBrush(Color.FromRgb(0, 122, 204));
+            }
+
+            Canvas.SetLeft(_activeDragBox, newLeft);
+            Canvas.SetTop(_activeDragBox, newTop);
         }
 
-        private void Subtitle_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
+        private void DraggableBox_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
         {
-            if (_isDraggingSubtitle)
+            if (_activeDragBox != null)
             {
-                _isDraggingSubtitle = false;
-                SubtitleBox.ReleaseMouseCapture();
+                _activeDragBox.ReleaseMouseCapture();
+                _activeDragBox = null;
                 HideGuideLines();
             }
         }
@@ -277,6 +339,16 @@ namespace LightSubtitlePlayer
             GuideLineHorizontal.Visibility = Visibility.Collapsed;
         }
 
+        private void CenterHorizontalBox(FrameworkElement box, double topPos)
+        {
+            if (OverlayCanvas.ActualWidth <= 0) return;
+            box.UpdateLayout();
+            double boxWidth = box.ActualWidth > 0 ? box.ActualWidth : 300;
+            double left = (OverlayCanvas.ActualWidth - boxWidth) / 2.0;
+            Canvas.SetLeft(box, Math.Max(0, left));
+            Canvas.SetTop(box, Math.Max(0, topPos));
+        }
+
         private void CenterSubtitle()
         {
             if (OverlayCanvas.ActualWidth <= 0 || SubtitleBox.ActualWidth <= 0) return;
@@ -286,14 +358,28 @@ namespace LightSubtitlePlayer
             Canvas.SetTop(SubtitleBox, Math.Max(0, top));
         }
 
+        private void CenterAllBoxesInitial()
+        {
+            CenterSubtitle();
+            CenterHorizontalBox(DisclaimerContainer, 15);
+            CenterHorizontalBox(CreditContainer, 65);
+        }
+
         private void OverlayCanvas_SizeChanged(object sender, SizeChangedEventArgs e)
         {
             CenterSubtitle();
-            if (DisclaimerContainer.Visibility == Visibility.Visible)
-            {
-                Canvas.SetLeft(DisclaimerContainer, (OverlayCanvas.ActualWidth - DisclaimerContainer.ActualWidth) / 2.0);
-                Canvas.SetTop(DisclaimerContainer, OverlayCanvas.ActualHeight - 40);
-            }
+            if (CreditContainer.ActualWidth > 0)
+                Canvas.SetLeft(CreditContainer, Math.Max(0, (OverlayCanvas.ActualWidth - CreditContainer.ActualWidth) / 2.0));
+            if (DisclaimerContainer.ActualWidth > 0)
+                Canvas.SetLeft(DisclaimerContainer, Math.Max(0, (OverlayCanvas.ActualWidth - DisclaimerContainer.ActualWidth) / 2.0));
+        }
+
+        private void BtnCenterSelectedTarget_Click(object sender, RoutedEventArgs e)
+        {
+            int idx = CmbStyleTarget?.SelectedIndex ?? 0;
+            if (idx == 0 || idx == 3) CenterSubtitle();
+            if (idx == 1 || idx == 3) CenterHorizontalBox(CreditContainer, Canvas.GetTop(CreditContainer));
+            if (idx == 2 || idx == 3) CenterHorizontalBox(DisclaimerContainer, Canvas.GetTop(DisclaimerContainer));
         }
 
         // ================= VÙNG CHE MỜ (KHÔNG VIỀN VÀNG, CHỈNH KÍCH THƯỚC) =================
@@ -338,79 +424,124 @@ namespace LightSubtitlePlayer
             }
         }
 
-        // ================= KÉO THẢ CREDIT / DISCLAIMER =================
-        private void Attribution_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+        // ================= ĐỊNH DẠNG KIỂU CHỮ, MÀU CHỮ & NỀN CHO PHỤ ĐỀ / CREDIT / DISCLAIMER =================
+        private IEnumerable<(Border Box, TextBlock Text, BoxStyleState State)> GetSelectedStyleTargets()
         {
-            if (sender is FrameworkElement el)
-            {
-                _isDraggingAttribution = true;
-                _dragStartPoint = e.GetPosition(OverlayCanvas);
-                _origLeft = Canvas.GetLeft(el);
-                _origTop = Canvas.GetTop(el);
-                el.CaptureMouse();
-            }
+            int idx = CmbStyleTarget?.SelectedIndex ?? 0;
+            if (idx == 0 || idx == 3) yield return (SubtitleBox, TxtSubtitleRender, _subtitleStyle);
+            if (idx == 1 || idx == 3) yield return (CreditContainer, TxtCreditContent, _creditStyle);
+            if (idx == 2 || idx == 3) yield return (DisclaimerContainer, TxtDisclaimerContent, _disclaimerStyle);
         }
 
-        private void Attribution_MouseMove(object sender, MouseEventArgs e)
+        private void CmbStyleTarget_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
-            if (!_isDraggingAttribution) return;
-            if (sender is FrameworkElement el)
+            if (CmbFont == null || CmbTextColor == null || SliderFontSize == null || SliderBgOpacity == null || CmbBgColor == null) return;
+
+            int idx = CmbStyleTarget.SelectedIndex;
+            BoxStyleState state = idx switch
             {
-                Point pt = e.GetPosition(OverlayCanvas);
-                Canvas.SetLeft(el, _origLeft + (pt.X - _dragStartPoint.X));
-                Canvas.SetTop(el, _origTop + (pt.Y - _dragStartPoint.Y));
-            }
+                1 => _creditStyle,
+                2 => _disclaimerStyle,
+                _ => _subtitleStyle
+            };
+
+            _isSyncingStyleControls = true;
+            CmbFont.SelectedIndex = state.FontIndex;
+            CmbTextColor.SelectedIndex = state.TextColorIndex;
+            SliderFontSize.Value = state.FontSize;
+            LblFontSize.Text = $"{state.FontSize:0} px";
+            SliderBgOpacity.Value = state.BgOpacity;
+            LblBgOpacity.Text = $"{state.BgOpacity * 100:0}%";
+            CmbBgColor.SelectedIndex = state.BgColorIndex;
+            _isSyncingStyleControls = false;
         }
 
-        private void Attribution_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
-        {
-            if (_isDraggingAttribution && sender is FrameworkElement el)
-            {
-                _isDraggingAttribution = false;
-                el.ReleaseMouseCapture();
-            }
-        }
-
-        // ================= ĐỊNH DẠNG KIỂU CHỮ & NỀN =================
         private void CmbFont_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
-            if (TxtSubtitleRender == null) return;
+            if (_isSyncingStyleControls || TxtSubtitleRender == null) return;
             if (CmbFont.SelectedItem is ComboBoxItem item)
             {
-                TxtSubtitleRender.FontFamily = new FontFamily(item.Content.ToString() ?? "Segoe UI");
+                string fontName = item.Content.ToString() ?? "Segoe UI";
+                foreach (var target in GetSelectedStyleTargets())
+                {
+                    target.State.FontIndex = CmbFont.SelectedIndex;
+                    target.Text.FontFamily = new FontFamily(fontName);
+                }
             }
+        }
+
+        private void CmbTextColor_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (_isSyncingStyleControls || TxtSubtitleRender == null) return;
+
+            foreach (var target in GetSelectedStyleTargets())
+            {
+                target.State.TextColorIndex = CmbTextColor.SelectedIndex;
+                ApplyTextColor(target.Text, target.State.TextColorIndex);
+            }
+        }
+
+        private static void ApplyTextColor(TextBlock textBlock, int colorIndex)
+        {
+            Color textColor = colorIndex switch
+            {
+                1 => Color.FromRgb(255, 215, 0),   // Vàng Rạp Phim (Cinema Gold)
+                2 => Color.FromRgb(0, 255, 255),   // Xanh Lơ (Cyan)
+                3 => Color.FromRgb(80, 250, 123),  // Xanh Lá (Neon Green)
+                4 => Color.FromRgb(255, 182, 193), // Hồng Phấn (Pastel Pink)
+                5 => Color.FromRgb(255, 165, 0),   // Cam Sáng (Orange)
+                6 => Color.FromRgb(255, 85, 85),   // Đỏ Tươi (Crimson Red)
+                _ => Colors.White                  // Trắng mặc định
+            };
+            textBlock.Foreground = new SolidColorBrush(textColor);
         }
 
         private void SliderFontSize_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
         {
-            if (TxtSubtitleRender == null || LblFontSize == null) return;
-            TxtSubtitleRender.FontSize = SliderFontSize.Value;
-            LblFontSize.Text = $"{SliderFontSize.Value:0} px";
+            if (LblFontSize != null) LblFontSize.Text = $"{SliderFontSize.Value:0} px";
+            if (_isSyncingStyleControls || TxtSubtitleRender == null) return;
+
+            foreach (var target in GetSelectedStyleTargets())
+            {
+                target.State.FontSize = SliderFontSize.Value;
+                target.Text.FontSize = SliderFontSize.Value;
+            }
         }
 
         private void SliderBgOpacity_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
         {
-            if (SubtitleBox == null || LblBgOpacity == null) return;
-            byte alpha = (byte)(SliderBgOpacity.Value * 255);
-            if (SubtitleBox.Background is SolidColorBrush brush)
+            if (LblBgOpacity != null) LblBgOpacity.Text = $"{SliderBgOpacity.Value * 100:0}%";
+            if (_isSyncingStyleControls || SubtitleBox == null) return;
+
+            foreach (var target in GetSelectedStyleTargets())
             {
-                SubtitleBox.Background = new SolidColorBrush(Color.FromArgb(alpha, brush.Color.R, brush.Color.G, brush.Color.B));
+                target.State.BgOpacity = SliderBgOpacity.Value;
+                ApplyBoxBackground(target.Box, target.State);
             }
-            LblBgOpacity.Text = $"{SliderBgOpacity.Value * 100:0}%";
         }
 
         private void CmbBgColor_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
-            if (SubtitleBox == null || SliderBgOpacity == null) return;
-            byte alpha = (byte)(SliderBgOpacity.Value * 255);
-            Color baseColor = CmbBgColor.SelectedIndex switch
+            if (_isSyncingStyleControls || SubtitleBox == null) return;
+
+            foreach (var target in GetSelectedStyleTargets())
+            {
+                target.State.BgColorIndex = CmbBgColor.SelectedIndex;
+                ApplyBoxBackground(target.Box, target.State);
+            }
+        }
+
+        private static void ApplyBoxBackground(Border box, BoxStyleState state)
+        {
+            byte alpha = (byte)(state.BgOpacity * 255);
+            Color baseColor = state.BgColorIndex switch
             {
                 1 => Color.FromRgb(30, 30, 45), // Xanh đen VS
                 2 => Color.FromRgb(45, 45, 48), // Xám tối
                 3 => Color.FromRgb(90, 20, 20), // Đỏ mờ
                 _ => Colors.Black               // Đen mặc định
             };
-            SubtitleBox.Background = new SolidColorBrush(Color.FromArgb(alpha, baseColor.R, baseColor.G, baseColor.B));
+            box.Background = new SolidColorBrush(Color.FromArgb(alpha, baseColor.R, baseColor.G, baseColor.B));
         }
 
         // ================= WATERMARK BẢN QUYỀN =================
@@ -468,14 +599,35 @@ namespace LightSubtitlePlayer
 
         private void UpdateAttributionDisplay()
         {
+            if (_isUpdatingAttributionText) return;
+            _isUpdatingAttributionText = true;
+
             if (TxtCreditContent != null && TxtInputSubber != null && TxtInputAuthor != null)
             {
-                TxtCreditContent.Text = $"Vietsub bởi {TxtInputSubber.Text} - Bản quyền video thuộc về kênh {TxtInputAuthor.Text}";
+                string credit = $"Vietsub bởi {TxtInputSubber.Text} - Bản quyền video thuộc về kênh {TxtInputAuthor.Text}";
+                TxtCreditContent.Text = credit;
+                if (TxtCustomCredit != null) TxtCustomCredit.Text = credit;
             }
             if (TxtDisclaimerContent != null && TxtInputAuthor != null)
             {
-                TxtDisclaimerContent.Text = $"Tất cả quyền hình ảnh và âm thanh thuộc về {TxtInputAuthor.Text}. Bản dịch tiếng Việt được thực hiện nhằm mục đích học tập/chia sẻ thông tin kiến thức.";
+                string disclaimer = $"Tất cả quyền hình ảnh và âm thanh thuộc về {TxtInputAuthor.Text}. Bản dịch tiếng Việt được thực hiện nhằm mục đích học tập/chia sẻ thông tin kiến thức.";
+                TxtDisclaimerContent.Text = disclaimer;
+                if (TxtCustomDisclaimer != null) TxtCustomDisclaimer.Text = disclaimer;
             }
+
+            _isUpdatingAttributionText = false;
+        }
+
+        private void TxtCustomCredit_TextChanged(object sender, TextChangedEventArgs e)
+        {
+            if (_isUpdatingAttributionText || TxtCreditContent == null) return;
+            TxtCreditContent.Text = TxtCustomCredit.Text;
+        }
+
+        private void TxtCustomDisclaimer_TextChanged(object sender, TextChangedEventArgs e)
+        {
+            if (_isUpdatingAttributionText || TxtDisclaimerContent == null) return;
+            TxtDisclaimerContent.Text = TxtCustomDisclaimer.Text;
         }
 
         // ================= PHÂN TÍCH VÀ CẬP NHẬT PHỤ ĐỀ (REAL-TIME SYNC) =================

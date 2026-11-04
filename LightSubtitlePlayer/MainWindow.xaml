@@ -70,8 +70,11 @@
                 </Grid.RowDefinitions>
 
                 <Canvas x:Name="OverlayCanvas" Grid.Row="0" ClipToBounds="True" Background="#000000" SizeChanged="OverlayCanvas_SizeChanged">
-                    <!-- Trình phát video (Click thẳng vào màn hình để Tạm dừng/Phát) -->
+                    <!-- Trình phát video: Ràng buộc Width/Height theo Canvas và Stretch="Uniform" để hiển thị trọn vẹn khung hình -->
                     <MediaElement x:Name="VideoPlayer" 
+                                  Width="{Binding ActualWidth, ElementName=OverlayCanvas}"
+                                  Height="{Binding ActualHeight, ElementName=OverlayCanvas}"
+                                  Stretch="Uniform"
                                   LoadedBehavior="Manual" 
                                   UnloadedBehavior="Stop"
                                   ScrubbingEnabled="True" 
@@ -97,7 +100,7 @@
                     </Border>
 
                     <!-- Watermark bản quyền (Góc cố định hoặc chạy tự do) -->
-                    <TextBlock x:Name="TxtWatermark" Text="© Vietsub bởi Minh Hiếu" 
+                    <TextBlock x:Name="TxtWatermark" Text="© Vietsub bởi Nguyễn Cường" 
                                Foreground="#FFFFFF" Opacity="0.5" FontSize="14" FontWeight="SemiBold"
                                Canvas.Right="20" Canvas.Top="20">
                         <TextBlock.Effect>
@@ -105,37 +108,45 @@
                         </TextBlock.Effect>
                     </TextBlock>
 
-                    <!-- Credit người dịch (0s - 5s - Kéo thả tự do) -->
-                    <Border x:Name="CreditContainer" Background="#DD1E1E1E" BorderBrush="#007ACC" BorderThickness="2"
-                            CornerRadius="5" Padding="14,8" Canvas.Left="100" Canvas.Top="80"
-                            MouseLeftButtonDown="Attribution_MouseLeftButtonDown"
-                            MouseMove="Attribution_MouseMove"
-                            MouseLeftButtonUp="Attribution_MouseLeftButtonUp"
-                            Cursor="Hand" Visibility="Collapsed">
-                        <StackPanel>
-                            <TextBlock Text="THÔNG TIN BẢN DỊCH" Foreground="#4EC9B0" FontSize="11" FontWeight="Bold" HorizontalAlignment="Center"/>
-                            <TextBlock x:Name="TxtCreditContent" Text="Vietsub: Minh Hiếu" Foreground="White" FontSize="16" FontWeight="Bold" HorizontalAlignment="Center" Margin="0,4,0,0"/>
-                        </StackPanel>
+                    <!-- Credit người dịch (Không tiêu đề, không viền xanh, thu gọn nền, tính năng y hệt phụ đề) -->
+                    <Border x:Name="CreditContainer" Background="#80000000" BorderThickness="0"
+                            CornerRadius="4" Padding="8,4" Canvas.Left="100" Canvas.Top="60"
+                            MouseLeftButtonDown="DraggableBox_MouseLeftButtonDown"
+                            MouseMove="DraggableBox_MouseMove"
+                            MouseLeftButtonUp="DraggableBox_MouseLeftButtonUp"
+                            Cursor="SizeAll" Visibility="Collapsed">
+                        <TextBlock x:Name="TxtCreditContent" Text="Vietsub bởi Nguyễn Cường - Bản quyền video thuộc về kênh Enigma" 
+                                   Foreground="#FFFFFF" FontSize="18" FontWeight="Bold" 
+                                   TextAlignment="Center" TextWrapping="Wrap">
+                            <TextBlock.Effect>
+                                <DropShadowEffect Color="Black" BlurRadius="4" ShadowDepth="2" Direction="315" Opacity="0.95"/>
+                            </TextBlock.Effect>
+                        </TextBlock>
                     </Border>
 
-                    <!-- Miễn trừ trách nhiệm (0s - 5s - Kéo thả tự do) -->
-                    <Border x:Name="DisclaimerContainer" Background="#E6141414" BorderBrush="#555555" BorderThickness="1"
-                            CornerRadius="4" Padding="12,6" MaxWidth="680"
-                            MouseLeftButtonDown="Attribution_MouseLeftButtonDown"
-                            MouseMove="Attribution_MouseMove"
-                            MouseLeftButtonUp="Attribution_MouseLeftButtonUp"
-                            Cursor="Hand" Visibility="Collapsed">
+                    <!-- Miễn trừ trách nhiệm (Không viền, thu gọn nền, tính năng y hệt phụ đề) -->
+                    <Border x:Name="DisclaimerContainer" Background="#80000000" BorderThickness="0"
+                            CornerRadius="4" Padding="8,4" MaxWidth="680" Canvas.Left="100" Canvas.Top="15"
+                            MouseLeftButtonDown="DraggableBox_MouseLeftButtonDown"
+                            MouseMove="DraggableBox_MouseMove"
+                            MouseLeftButtonUp="DraggableBox_MouseLeftButtonUp"
+                            Cursor="SizeAll" Visibility="Collapsed">
                         <TextBlock x:Name="TxtDisclaimerContent" 
                                    Text="Tất cả quyền hình ảnh và âm thanh thuộc về tác giả gốc. Bản dịch tiếng Việt được thực hiện nhằm mục đích học tập/chia sẻ thông tin kiến thức."
-                                   Foreground="#DCDCDC" FontSize="11" TextWrapping="Wrap" TextAlignment="Center"/>
+                                   Foreground="#FFFFFF" FontSize="13" FontWeight="SemiBold"
+                                   TextWrapping="Wrap" TextAlignment="Center">
+                            <TextBlock.Effect>
+                                <DropShadowEffect Color="Black" BlurRadius="4" ShadowDepth="2" Direction="315" Opacity="0.95"/>
+                            </TextBlock.Effect>
+                        </TextBlock>
                     </Border>
 
-                    <!-- PHỤ ĐỀ TRONG VIDEO: Kéo thả, tự hít tâm, đổi màu nền & opacity -->
+                    <!-- PHỤ ĐỀ TRONG VIDEO: Kéo thả, tự hít tâm, đổi màu chữ, màu nền & opacity -->
                     <Border x:Name="SubtitleBox"
-                            Background="#80000000" CornerRadius="4" Padding="10,4"
-                            MouseLeftButtonDown="Subtitle_MouseLeftButtonDown"
-                            MouseMove="Subtitle_MouseMove"
-                            MouseLeftButtonUp="Subtitle_MouseLeftButtonUp"
+                            Background="#80000000" BorderThickness="0" CornerRadius="4" Padding="8,4"
+                            MouseLeftButtonDown="DraggableBox_MouseLeftButtonDown"
+                            MouseMove="DraggableBox_MouseMove"
+                            MouseLeftButtonUp="DraggableBox_MouseLeftButtonUp"
                             Cursor="SizeAll">
                         <TextBlock x:Name="TxtSubtitleRender" 
                                    Text="Phụ đề sẽ hiển thị tại đây" 
@@ -254,12 +265,22 @@
                     </ScrollViewer>
                 </TabItem>
 
-                <!-- TAB 3: KIỂU CHỮ & NỀN -->
+                <!-- TAB 3: KIỂU CHỮ & NỀN (TÙY CHỈNH CHO CẢ PHỤ ĐỀ, CREDIT & MIỄN TRỪ TRÁCH NHIỆM) -->
                 <TabItem Header="Kiểu Chữ">
                     <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="14">
                         <StackPanel>
-                            <TextBlock Text="PHÔNG CHỮ" Foreground="#858585" FontWeight="Bold" FontSize="11" Margin="0,0,0,6"/>
-                            <ComboBox x:Name="CmbFont" Height="28" SelectionChanged="CmbFont_SelectionChanged" Margin="0,0,0,12">
+                            <TextBlock Text="ĐỐI TƯỢNG TÙY CHỈNH" Foreground="#4EC9B0" FontWeight="Bold" FontSize="11" Margin="0,0,0,6"/>
+                            <ComboBox x:Name="CmbStyleTarget" Height="28" SelectionChanged="CmbStyleTarget_SelectionChanged" Margin="0,0,0,14">
+                                <ComboBoxItem Content="Phụ đề chính" IsSelected="True"/>
+                                <ComboBoxItem Content="Credit người dịch"/>
+                                <ComboBoxItem Content="Miễn trừ trách nhiệm"/>
+                                <ComboBoxItem Content="Áp dụng tất cả"/>
+                            </ComboBox>
+
+                            <Separator Background="#3F3F46" Margin="0,0,0,12"/>
+
+                            <TextBlock Text="PHÔNG CHỮ &amp; MÀU CHỮ" Foreground="#858585" FontWeight="Bold" FontSize="11" Margin="0,0,0,6"/>
+                            <ComboBox x:Name="CmbFont" Height="28" SelectionChanged="CmbFont_SelectionChanged" Margin="0,0,0,10">
                                 <ComboBoxItem Content="Segoe UI" IsSelected="True"/>
                                 <ComboBoxItem Content="Arial"/>
                                 <ComboBoxItem Content="Roboto"/>
@@ -268,26 +289,41 @@
                                 <ComboBoxItem Content="Consolas"/>
                             </ComboBox>
 
+                            <TextBlock Text="Màu chữ:" Foreground="#CCCCCC" FontSize="12" Margin="0,0,0,4"/>
+                            <ComboBox x:Name="CmbTextColor" Height="28" SelectionChanged="CmbTextColor_SelectionChanged" Margin="0,0,0,12">
+                                <ComboBoxItem Content="Trắng (Mặc định)" IsSelected="True"/>
+                                <ComboBoxItem Content="Vàng Rạp Phim (Cinema Gold)"/>
+                                <ComboBoxItem Content="Xanh Lơ (Cyan)"/>
+                                <ComboBoxItem Content="Xanh Lá (Neon Green)"/>
+                                <ComboBoxItem Content="Hồng Phấn (Pastel Pink)"/>
+                                <ComboBoxItem Content="Cam Sáng (Orange)"/>
+                                <ComboBoxItem Content="Đỏ Tươi (Crimson Red)"/>
+                            </ComboBox>
+
                             <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
                                 <TextBlock Text="Cỡ chữ:" Foreground="#CCCCCC" FontSize="12" Width="60"/>
                                 <TextBlock x:Name="LblFontSize" Text="26 px" Foreground="#4EC9B0" FontWeight="Bold" FontSize="12"/>
                             </StackPanel>
-                            <Slider x:Name="SliderFontSize" Minimum="16" Maximum="54" Value="26" ValueChanged="SliderFontSize_ValueChanged" Margin="0,0,0,14"/>
+                            <Slider x:Name="SliderFontSize" Minimum="10" Maximum="54" Value="26" ValueChanged="SliderFontSize_ValueChanged" Margin="0,0,0,14"/>
 
-                            <TextBlock Text="NỀN PHỤ ĐỀ" Foreground="#858585" FontWeight="Bold" FontSize="11" Margin="0,0,0,6"/>
+                            <Separator Background="#3F3F46" Margin="0,0,0,12"/>
+
+                            <TextBlock Text="NỀN KHUNG CHỮ" Foreground="#858585" FontWeight="Bold" FontSize="11" Margin="0,0,0,6"/>
                             <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
                                 <TextBlock Text="Độ mờ nền:" Foreground="#CCCCCC" FontSize="12" Width="80"/>
                                 <TextBlock x:Name="LblBgOpacity" Text="50%" Foreground="#4EC9B0" FontWeight="Bold" FontSize="12"/>
                             </StackPanel>
                             <Slider x:Name="SliderBgOpacity" Minimum="0" Maximum="1" Value="0.5" SmallChange="0.05" ValueChanged="SliderBgOpacity_ValueChanged" Margin="0,0,0,14"/>
 
-                            <TextBlock Text="Màu nền chữ:" Foreground="#CCCCCC" FontSize="12" Margin="0,0,0,4"/>
-                            <ComboBox x:Name="CmbBgColor" Height="28" SelectionChanged="CmbBgColor_SelectionChanged">
+                            <TextBlock Text="Màu nền khung:" Foreground="#CCCCCC" FontSize="12" Margin="0,0,0,4"/>
+                            <ComboBox x:Name="CmbBgColor" Height="28" SelectionChanged="CmbBgColor_SelectionChanged" Margin="0,0,0,14">
                                 <ComboBoxItem Content="Đen (Mặc định)" IsSelected="True"/>
                                 <ComboBoxItem Content="Xanh đen Visual Studio"/>
                                 <ComboBoxItem Content="Xám tối"/>
                                 <ComboBoxItem Content="Đỏ mờ"/>
                             </ComboBox>
+
+                            <Button Content="🎯 Căn Giữa Khung Đang Chọn" Height="30" Background="#2D2D30" Foreground="#4EC9B0" BorderBrush="#3F3F46" BorderThickness="1" Click="BtnCenterSelectedTarget_Click"/>
                         </StackPanel>
                     </ScrollViewer>
                 </TabItem>
@@ -297,7 +333,7 @@
                     <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="14">
                         <StackPanel>
                             <TextBlock Text="DẤU MỜ BẢN QUYỀN (WATERMARK)" Foreground="#4EC9B0" FontWeight="Bold" FontSize="11" Margin="0,0,0,6"/>
-                            <TextBox x:Name="TxtInputWatermark" Text="© Vietsub: Minh Hiếu" Background="#1E1E1E" Foreground="White" Height="26" BorderBrush="#3F3F46" Padding="4,2" TextChanged="TxtInputWatermark_TextChanged" Margin="0,0,0,6"/>
+                            <TextBox x:Name="TxtInputWatermark" Text="© Vietsub: Nguyễn Cường" Background="#1E1E1E" Foreground="White" Height="26" BorderBrush="#3F3F46" Padding="4,2" TextChanged="TxtInputWatermark_TextChanged" Margin="0,0,0,6"/>
 
                             <CheckBox x:Name="ChkFloatingWatermark" Content="Bật chế độ Watermark chạy tự do" Foreground="#FFCC00" FontSize="12" Margin="0,0,0,8" Checked="ChkFloatingWatermark_Checked" Unchecked="ChkFloatingWatermark_Unchecked"/>
 
@@ -310,10 +346,16 @@
 
                             <TextBlock Text="CREDIT DỊCH GIẢ &amp; TÁC GIẢ GỐC" Foreground="#858585" FontWeight="Bold" FontSize="11" Margin="0,0,0,6"/>
                             <TextBlock Text="Tên người dịch:" Foreground="#BBB" FontSize="11" Margin="0,0,0,2"/>
-                            <TextBox x:Name="TxtInputSubber" Text="Nguyễn Minh Hiếu" Background="#1E1E1E" Foreground="White" Height="24" BorderBrush="#3F3F46" Padding="4,2" TextChanged="UpdateAttributionTexts" Margin="0,0,0,6"/>
+                            <TextBox x:Name="TxtInputSubber" Text="Nguyễn Cường" Background="#1E1E1E" Foreground="White" Height="24" BorderBrush="#3F3F46" Padding="4,2" TextChanged="UpdateAttributionTexts" Margin="0,0,0,6"/>
 
                             <TextBlock Text="Tên kênh tác giả gốc:" Foreground="#BBB" FontSize="11" Margin="0,0,0,2"/>
-                            <TextBox x:Name="TxtInputAuthor" Text="Enigma" Background="#1E1E1E" Foreground="White" Height="24" BorderBrush="#3F3F46" Padding="4,2" TextChanged="UpdateAttributionTexts" Margin="0,0,0,8"/>
+                            <TextBox x:Name="TxtInputAuthor" Text="Enigma" Background="#1E1E1E" Foreground="White" Height="24" BorderBrush="#3F3F46" Padding="4,2" TextChanged="UpdateAttributionTexts" Margin="0,0,0,6"/>
+
+                            <TextBlock Text="Nội dung Credit (Tùy chỉnh trực tiếp):" Foreground="#BBB" FontSize="11" Margin="0,0,0,2"/>
+                            <TextBox x:Name="TxtCustomCredit" Background="#1E1E1E" Foreground="#9CDCFE" Height="38" TextWrapping="Wrap" AcceptsReturn="True" BorderBrush="#3F3F46" Padding="4,2" TextChanged="TxtCustomCredit_TextChanged" Margin="0,0,0,6"/>
+
+                            <TextBlock Text="Nội dung Miễn trừ trách nhiệm (Tùy chỉnh trực tiếp):" Foreground="#BBB" FontSize="11" Margin="0,0,0,2"/>
+                            <TextBox x:Name="TxtCustomDisclaimer" Background="#1E1E1E" Foreground="#9CDCFE" Height="48" TextWrapping="Wrap" AcceptsReturn="True" BorderBrush="#3F3F46" Padding="4,2" TextChanged="TxtCustomDisclaimer_TextChanged" Margin="0,0,0,8"/>
 
                             <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
                                 <TextBlock Text="Từ:" Foreground="#999" FontSize="11" VerticalAlignment="Center"/>
