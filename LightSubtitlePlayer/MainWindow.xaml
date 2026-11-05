@@ -1,7 +1,7 @@
 ﻿<Window x:Class="LightSubtitlePlayer.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="LightSubtitle Studio Pro" Height="780" Width="1240"
+        Title="LightSubtitle Studio Pro" Height="800" Width="1260"
         Background="#1E1E1E" WindowStartupLocation="CenterScreen">
 
     <Window.Resources>
@@ -11,7 +11,7 @@
         <Style TargetType="TabItem">
             <Setter Property="Background" Value="#2D2D30"/>
             <Setter Property="Foreground" Value="#CCCCCC"/>
-            <Setter Property="Padding" Value="12,6"/>
+            <Setter Property="Padding" Value="10,6"/>
             <Setter Property="BorderThickness" Value="0"/>
             <Setter Property="Template">
                 <Setter.Value>
@@ -42,16 +42,20 @@
         <Menu Grid.Row="0" Background="#2D2D30" Foreground="#CCCCCC" Padding="4,2">
             <MenuItem Header="Tệp" Foreground="#CCCCCC">
                 <MenuItem Header="Mở Video..." Click="BtnOpenVideo_Click"/>
+                <MenuItem Header="🎬 Xuất Video MP4 (Ghép Phụ Đề + Giọng AI)..." Click="BtnExportVideo_Click"/>
                 <Separator/>
                 <MenuItem Header="Thoát" Click="MenuExit_Click"/>
             </MenuItem>
             <MenuItem Header="Phụ đề" Foreground="#CCCCCC">
-                <MenuItem Header="Sao chép Prompt Chuẩn Rạp" Click="BtnCopyPrompt_Click"/>
+                <MenuItem Header="Ẩn / Hiện Phụ Đề Trên Video" Click="MenuToggleSubtitle_Click"/>
+                <Separator/>
+                <MenuItem Header="Sao chép Prompt Chuẩn Rạp + Lồng Tiếng AI" Click="BtnCopyPrompt_Click"/>
                 <MenuItem Header="Cấy Thủy Vân Ẩn" Click="BtnInjectStego_Click"/>
                 <MenuItem Header="Soát Mã Ẩn" Click="BtnVerifyStego_Click"/>
             </MenuItem>
             <MenuItem Header="Công cụ" Foreground="#CCCCCC">
                 <MenuItem Header="Bật/Tắt Vùng Che Mờ" Click="ToggleBlurBox_Click"/>
+                <MenuItem Header="Tạo Giọng Đọc AI Ngay" Click="BtnGenerateVoice_Click"/>
             </MenuItem>
         </Menu>
 
@@ -59,7 +63,7 @@
         <Grid Grid.Row="1">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*"/>
-                <ColumnDefinition Width="380"/>
+                <ColumnDefinition Width="395"/>
             </Grid.ColumnDefinitions>
 
             <!-- CỘT TRÁI: VIDEO & KHUNG CANVAS TƯƠNG TÁC -->
@@ -70,7 +74,7 @@
                 </Grid.RowDefinitions>
 
                 <Canvas x:Name="OverlayCanvas" Grid.Row="0" ClipToBounds="True" Background="#000000" SizeChanged="OverlayCanvas_SizeChanged">
-                    <!-- Trình phát video: Ràng buộc Width/Height theo Canvas và Stretch="Uniform" để hiển thị trọn vẹn khung hình -->
+                    <!-- Trình phát video chính -->
                     <MediaElement x:Name="VideoPlayer" 
                                   Width="{Binding ActualWidth, ElementName=OverlayCanvas}"
                                   Height="{Binding ActualHeight, ElementName=OverlayCanvas}"
@@ -79,6 +83,13 @@
                                   UnloadedBehavior="Stop"
                                   ScrubbingEnabled="True" 
                                   MouseLeftButtonUp="VideoPlayer_MouseLeftButtonUp"/>
+
+                    <!-- Trình phát âm thanh lồng tiếng AI (Ẩn) -->
+                    <MediaElement x:Name="TtsAudioPlayer"
+                                  LoadedBehavior="Manual"
+                                  UnloadedBehavior="Stop"
+                                  Visibility="Collapsed"
+                                  MediaEnded="TtsAudioPlayer_MediaEnded"/>
 
                     <!-- Đường kẻ căn tâm đứt nét -->
                     <Line x:Name="GuideLineHorizontal" Stroke="#007ACC" StrokeDashArray="4 2" StrokeThickness="1.5" Visibility="Collapsed"/>
@@ -99,7 +110,7 @@
                         </Border.Effect>
                     </Border>
 
-                    <!-- Watermark bản quyền (Góc cố định hoặc chạy tự do) -->
+                    <!-- Watermark bản quyền -->
                     <TextBlock x:Name="TxtWatermark" Text="© Vietsub bởi Nguyễn Cường" 
                                Foreground="#FFFFFF" Opacity="0.5" FontSize="14" FontWeight="SemiBold"
                                Canvas.Right="20" Canvas.Top="20">
@@ -108,7 +119,7 @@
                         </TextBlock.Effect>
                     </TextBlock>
 
-                    <!-- Credit người dịch (Không tiêu đề, không viền xanh, thu gọn nền, tính năng y hệt phụ đề) -->
+                    <!-- Credit người dịch -->
                     <Border x:Name="CreditContainer" Background="#80000000" BorderThickness="0"
                             CornerRadius="4" Padding="8,4" Canvas.Left="100" Canvas.Top="60"
                             MouseLeftButtonDown="DraggableBox_MouseLeftButtonDown"
@@ -124,7 +135,7 @@
                         </TextBlock>
                     </Border>
 
-                    <!-- Miễn trừ trách nhiệm (Không viền, thu gọn nền, tính năng y hệt phụ đề) -->
+                    <!-- Miễn trừ trách nhiệm -->
                     <Border x:Name="DisclaimerContainer" Background="#80000000" BorderThickness="0"
                             CornerRadius="4" Padding="8,4" MaxWidth="680" Canvas.Left="100" Canvas.Top="15"
                             MouseLeftButtonDown="DraggableBox_MouseLeftButtonDown"
@@ -141,7 +152,7 @@
                         </TextBlock>
                     </Border>
 
-                    <!-- PHỤ ĐỀ TRONG VIDEO: Kéo thả, tự hít tâm, đổi màu chữ, màu nền & opacity -->
+                    <!-- PHỤ ĐỀ TRONG VIDEO -->
                     <Border x:Name="SubtitleBox"
                             Background="#80000000" BorderThickness="0" CornerRadius="4" Padding="8,4"
                             MouseLeftButtonDown="DraggableBox_MouseLeftButtonDown"
@@ -185,13 +196,18 @@
                             <TextBlock x:Name="LblTotalTime" Grid.Column="2" Text="00:00:00" Foreground="#858585" FontSize="11" VerticalAlignment="Center" Margin="8,0,0,0"/>
                         </Grid>
 
-                        <!-- Nút điều hướng -->
+                        <!-- Nút điều hướng & Bật/Tắt nhanh Phụ đề + Giọng AI + Xuất Video -->
                         <StackPanel Grid.Row="1" Orientation="Horizontal" HorizontalAlignment="Center">
-                            <Button Content="⏮ -5s" Width="55" Height="26" Background="#2D2D30" Foreground="White" BorderThickness="0" Margin="0,0,6,0" Click="BtnRewind_Click"/>
-                            <Button x:Name="BtnPlay" Content="▶ Phát" Width="70" Height="26" Background="#007ACC" Foreground="White" BorderThickness="0" Margin="0,0,6,0" Click="BtnPlay_Click"/>
-                            <Button x:Name="BtnPause" Content="⏸ Tạm dừng" Width="85" Height="26" Background="#3E3E42" Foreground="White" BorderThickness="0" Margin="0,0,6,0" Click="BtnPause_Click"/>
-                            <Button x:Name="BtnStop" Content="⏹ Dừng" Width="65" Height="26" Background="#3E3E42" Foreground="White" BorderThickness="0" Margin="0,0,6,0" Click="BtnStop_Click"/>
-                            <Button Content="+5s ⏭" Width="55" Height="26" Background="#2D2D30" Foreground="White" BorderThickness="0" Click="BtnForward_Click"/>
+                            <Button Content="⏮ -5s" Width="50" Height="26" Background="#2D2D30" Foreground="White" BorderThickness="0" Margin="0,0,5,0" Click="BtnRewind_Click"/>
+                            <Button x:Name="BtnPlay" Content="▶ Phát" Width="64" Height="26" Background="#007ACC" Foreground="White" BorderThickness="0" Margin="0,0,5,0" Click="BtnPlay_Click"/>
+                            <Button x:Name="BtnPause" Content="⏸ Tạm dừng" Width="78" Height="26" Background="#3E3E42" Foreground="White" BorderThickness="0" Margin="0,0,5,0" Click="BtnPause_Click"/>
+                            <Button x:Name="BtnStop" Content="⏹ Dừng" Width="58" Height="26" Background="#3E3E42" Foreground="White" BorderThickness="0" Margin="0,0,5,0" Click="BtnStop_Click"/>
+                            <Button Content="+5s ⏭" Width="50" Height="26" Background="#2D2D30" Foreground="White" BorderThickness="0" Margin="0,0,12,0" Click="BtnForward_Click"/>
+
+                            <CheckBox x:Name="ChkHideSubtitle" Content="🙈 Ẩn phụ đề" Foreground="#FFCC00" VerticalAlignment="Center" Margin="0,0,10,0" Checked="ChkHideSubtitle_Changed" Unchecked="ChkHideSubtitle_Changed"/>
+                            <CheckBox x:Name="ChkEnableVoiceover" Content="🔊 Lồng tiếng AI" IsChecked="True" Foreground="#4EC9B0" VerticalAlignment="Center" Margin="0,0,12,0"/>
+
+                            <Button x:Name="BtnQuickExport" Content="🎬 Xuất MP4" Padding="10,0" Height="26" Background="#16825D" Foreground="White" FontWeight="Bold" BorderThickness="0" Click="BtnExportVideo_Click"/>
                         </StackPanel>
                     </Grid>
                 </Border>
@@ -200,22 +216,28 @@
             <!-- CỘT PHẢI: TABS CHỨC NĂNG -->
             <TabControl Grid.Column="1" Background="#252526" BorderBrush="#3F3F46" BorderThickness="1,0,0,0">
 
-                <!-- TAB 1: TẢI VIDEO & VÙNG CHE MỜ -->
-                <TabItem Header="Tải Video">
+                <!-- TAB 1: TẢI VIDEO, XUẤT VIDEO & VÙNG CHE MỜ -->
+                <TabItem Header="Tải &amp; Xuất">
                     <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="14">
                         <StackPanel>
                             <TextBlock Text="DÁN LIÊN KẾT VIDEO" Foreground="#4EC9B0" FontWeight="Bold" FontSize="11" Margin="0,0,0,6"/>
                             <TextBlock Text="YouTube, TikTok, Bilibili (.tv &amp; .com), Douyin" Foreground="#858585" FontSize="11" Margin="0,0,0,8"/>
                             <TextBox x:Name="TxtVideoUrl" Height="28" Background="#1E1E1E" Foreground="White" BorderBrush="#3F3F46" Padding="6,4" Margin="0,0,0,8"/>
                             <ProgressBar x:Name="PbDownload" Height="6" Minimum="0" Maximum="100" Value="0" Visibility="Collapsed" Margin="0,0,0,8"/>
-                            <Button x:Name="BtnDownloadVideo" Content="⬇ Tải Video Ngay" Height="32" Background="#0E639C" Foreground="White" BorderThickness="0" FontWeight="Bold" Click="BtnDownloadVideo_Click" Margin="0,0,0,14"/>
-
-                            <Separator Background="#3F3F46" Margin="0,0,0,14"/>
+                            <Button x:Name="BtnDownloadVideo" Content="⬇ Tải Video Ngay" Height="32" Background="#0E639C" Foreground="White" BorderThickness="0" FontWeight="Bold" Click="BtnDownloadVideo_Click" Margin="0,0,0,12"/>
 
                             <TextBlock Text="CHỌN TỆP TỪ MÁY TÍNH" Foreground="#858585" FontWeight="Bold" FontSize="11" Margin="0,0,0,6"/>
-                            <Button Content="📁 Duyệt Video..." Height="30" Background="#3E3E42" Foreground="White" BorderThickness="0" Click="BtnOpenVideo_Click" Margin="0,0,0,14"/>
+                            <Button Content="📁 Duyệt Video Có Sẵn..." Height="30" Background="#3E3E42" Foreground="White" BorderThickness="0" Click="BtnOpenVideo_Click" Margin="0,0,0,14"/>
 
-                            <Separator Background="#3F3F46" Margin="0,0,0,14"/>
+                            <Separator Background="#3F3F46" Margin="0,0,0,12"/>
+
+                            <!-- XUẤT VIDEO HOÀN CHỈNH (FFMPEG) -->
+                            <TextBlock Text="XUẤT VIDEO HOÀN CHỈNH (HARDSUB + GIỌNG AI)" Foreground="#4EC9B0" FontWeight="Bold" FontSize="11" Margin="0,0,0,4"/>
+                            <TextBlock Text="Ghép cứng phụ đề (nếu không ẩn), vùng che mờ, Watermark và trộn âm thanh lồng tiếng AI thành file .mp4" Foreground="#858585" FontSize="10.5" TextWrapping="Wrap" Margin="0,0,0,8"/>
+                            <ProgressBar x:Name="PbExport" Height="6" Minimum="0" Maximum="100" Value="0" Visibility="Collapsed" Margin="0,0,0,8"/>
+                            <Button x:Name="BtnExportVideo" Content="🎬 Xuất Video MP4 Hoàn Chỉnh..." Height="34" Background="#16825D" Foreground="White" BorderThickness="0" FontWeight="Bold" Click="BtnExportVideo_Click" Margin="0,0,0,14"/>
+
+                            <Separator Background="#3F3F46" Margin="0,0,0,12"/>
 
                             <!-- TÙY CHỈNH HỘP CHE MỜ -->
                             <TextBlock Text="VÙNG CHE MỜ (KHÔNG VIỀN VÀNG)" Foreground="#FFCC00" FontWeight="Bold" FontSize="11" Margin="0,0,0,6"/>
@@ -251,24 +273,94 @@
                             <TextBlock Text="API Key:" Foreground="#CCCCCC" FontSize="12" Margin="0,0,0,4"/>
                             <PasswordBox x:Name="TxtApiKey" Height="28" Background="#1E1E1E" Foreground="White" BorderBrush="#3F3F46" Padding="6,4" Margin="0,0,0,10"/>
 
-                            <TextBlock Text="PROMPT CHUẨN RẠP PHIM" Foreground="#858585" FontWeight="Bold" FontSize="11" Margin="0,0,0,6"/>
-                            <Button Content="📋 Sao Chép Prompt Rạp Phim" Height="30" Background="#383838" Foreground="#DCDCDC" BorderBrush="#555" BorderThickness="1" Click="BtnCopyPrompt_Click" Margin="0,0,0,8"/>
-                            <Button x:Name="BtnAutoAiSub" Content="✨ Tự Động Dịch Bằng API" Height="32" Background="#68217A" Foreground="White" BorderThickness="0" FontWeight="Bold" Click="BtnAutoAiSub_Click" Margin="0,0,0,14"/>
+                            <TextBlock Text="PROMPT CHUẨN RẠP + ĐÁNH DẤU NHẤN NHÁ GIỌNG AI" Foreground="#FFCC00" FontWeight="Bold" FontSize="11" Margin="0,0,0,4"/>
+                            <TextBlock Text="Hỗ trợ thẻ [ngắt], [nhấn: từ], [cao], [trầm] (ẩn trên màn hình video nhưng giọng AI hiểu được)" Foreground="#858585" FontSize="10.5" TextWrapping="Wrap" Margin="0,0,0,6"/>
+                            <Button Content="📋 Sao Chép Prompt Rạp Phim + Lồng Tiếng AI" Height="30" Background="#383838" Foreground="#DCDCDC" BorderBrush="#555" BorderThickness="1" Click="BtnCopyPrompt_Click" Margin="0,0,0,8"/>
+                            <Button x:Name="BtnAutoAiSub" Content="✨ Tự Động Dịch Bằng API" Height="32" Background="#68217A" Foreground="White" BorderThickness="0" FontWeight="Bold" Click="BtnAutoAiSub_Click" Margin="0,0,0,12"/>
 
-                            <Separator Background="#3F3F46" Margin="0,0,0,12"/>
+                            <Separator Background="#3F3F46" Margin="0,0,0,10"/>
 
                             <!-- Khung chỉnh sửa SRT trực tiếp (Real-time Sync) -->
-                            <TextBlock Text="NỘI DUNG PHỤ ĐỀ (TỰ ĐỒNG BỘ TỨC THÌ)" Foreground="#4EC9B0" FontWeight="Bold" FontSize="11" Margin="0,0,0,4"/>
-                            <TextBox x:Name="TxtSrtEditor" Height="140" Background="#1E1E1E" Foreground="#9CDCFE" FontFamily="Consolas" FontSize="11" TextWrapping="Wrap" AcceptsReturn="True" VerticalScrollBarVisibility="Auto" BorderBrush="#3F3F46" TextChanged="TxtSrtEditor_TextChanged" Margin="0,0,0,8"/>
-                            <Button Content="⚡ Nạp Lại Phụ Đề" Height="28" Background="#2D2D30" Foreground="#DCDCDC" BorderBrush="#3F3F46" BorderThickness="1" Click="BtnApplySub_Click"/>
+                            <TextBlock Text="NỘI DUNG PHỤ ĐỀ (HIỂU CẢ KÝ HIỆU NHẤN NHÁ AI)" Foreground="#4EC9B0" FontWeight="Bold" FontSize="11" Margin="0,0,0,4"/>
+                            <TextBox x:Name="TxtSrtEditor" Height="150" Background="#1E1E1E" Foreground="#9CDCFE" FontFamily="Consolas" FontSize="11" TextWrapping="Wrap" AcceptsReturn="True" VerticalScrollBarVisibility="Auto" BorderBrush="#3F3F46" TextChanged="TxtSrtEditor_TextChanged" Margin="0,0,0,8"/>
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <Button Grid.Column="0" Content="⚡ Nạp Phụ Đề" Height="28" Background="#2D2D30" Foreground="#DCDCDC" BorderBrush="#3F3F46" BorderThickness="1" Margin="0,0,6,0" Click="BtnApplySub_Click"/>
+                                <Button Grid.Column="1" Content="🎙 Tạo Giọng Đọc Ngay" Padding="10,0" Height="28" Background="#0E639C" Foreground="White" BorderThickness="0" FontWeight="SemiBold" Click="BtnGenerateVoice_Click"/>
+                            </Grid>
                         </StackPanel>
                     </ScrollViewer>
                 </TabItem>
 
-                <!-- TAB 3: KIỂU CHỮ & NỀN (TÙY CHỈNH CHO CẢ PHỤ ĐỀ, CREDIT & MIỄN TRỪ TRÁCH NHIỆM) -->
+                <!-- TAB 3: GIỌNG AI (TIKTOK / YOUTUBE NEURAL TTS) -->
+                <TabItem Header="Giọng AI">
+                    <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="14">
+                        <StackPanel>
+                            <TextBlock Text="CHỌN GIỌNG ĐỌC TIẾNG VIỆT (TIKTOK / YOUTUBE)" Foreground="#4EC9B0" FontWeight="Bold" FontSize="11" Margin="0,0,0,6"/>
+                            <ComboBox x:Name="CmbTtsVoice" Height="30" Margin="0,0,0,12">
+                                <ComboBoxItem Content="🎬 Nam Minh - Nam Review Phim / TikTok (Trầm ấm)" IsSelected="True"/>
+                                <ComboBoxItem Content="🌸 Hoài My - Nữ Kể Chuyện / YouTube (Truyền cảm)"/>
+                                <ComboBoxItem Content="⚡ Nam Minh - Nam Tin Tức / Công Nghệ (Nhanh, dứt khoát)"/>
+                                <ComboBoxItem Content="🎙 Hoài My - Nữ Podcast / Tâm Sự (Nhẹ nhàng, sâu lắng)"/>
+                                <ComboBoxItem Content="🔥 ElevenLabs / OpenAI Neural (Dùng API Key riêng)"/>
+                            </ComboBox>
+
+                            <TextBlock Text="CHẾ ĐỘ ĐỌC PHỤ ĐỀ" Foreground="#FFCC00" FontWeight="Bold" FontSize="11" Margin="0,0,0,6"/>
+                            <RadioButton x:Name="RbReadNatural" Content="1. Đọc Tự Nhiên (Nhấn nhá, cao thấp, ngắt nghỉ theo ngữ cảnh)" IsChecked="True" Foreground="#FFFFFF" FontSize="11.5" Margin="0,0,0,6"/>
+                            <RadioButton x:Name="RbReadNormal" Content="2. Đọc Bình Thường (Đều giọng, tốc độ &amp; cao độ ổn định)" Foreground="#CCCCCC" FontSize="11.5" Margin="0,0,0,12"/>
+
+                            <Separator Background="#3F3F46" Margin="0,0,0,12"/>
+
+                            <TextBlock Text="ĐIỀU CHỈNH NHỊP ĐỌC &amp; ÂM LƯỢNG" Foreground="#858585" FontWeight="Bold" FontSize="11" Margin="0,0,0,6"/>
+
+                            <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
+                                <TextBlock Text="Tốc độ đọc:" Foreground="#CCCCCC" FontSize="12" Width="110"/>
+                                <TextBlock x:Name="LblTtsRate" Text="+5%" Foreground="#4EC9B0" FontWeight="Bold" FontSize="12"/>
+                            </StackPanel>
+                            <Slider x:Name="SliderTtsRate" Minimum="-30" Maximum="50" Value="5" ValueChanged="SliderTtsParams_ValueChanged" Margin="0,0,0,10"/>
+
+                            <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
+                                <TextBlock Text="Cao độ (Pitch):" Foreground="#CCCCCC" FontSize="12" Width="110"/>
+                                <TextBlock x:Name="LblTtsPitch" Text="+0 Hz" Foreground="#4EC9B0" FontWeight="Bold" FontSize="12"/>
+                            </StackPanel>
+                            <Slider x:Name="SliderTtsPitch" Minimum="-20" Maximum="20" Value="0" ValueChanged="SliderTtsParams_ValueChanged" Margin="0,0,0,10"/>
+
+                            <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
+                                <TextBlock Text="Âm lượng video gốc khi AI đọc:" Foreground="#CCCCCC" FontSize="12" Width="185"/>
+                                <TextBlock x:Name="LblVideoDucking" Text="25%" Foreground="#FFCC00" FontWeight="Bold" FontSize="12"/>
+                            </StackPanel>
+                            <Slider x:Name="SliderVideoDucking" Minimum="0" Maximum="100" Value="25" ValueChanged="SliderTtsParams_ValueChanged" Margin="0,0,0,12"/>
+
+                            <ProgressBar x:Name="PbTtsGen" Height="6" Minimum="0" Maximum="100" Value="0" Visibility="Collapsed" Margin="0,0,0,8"/>
+
+                            <Button x:Name="BtnGenerateVoice" Content="🎧 Tải &amp; Đồng Bộ Giọng Đọc Cho Toàn Bộ Phụ Đề" Height="34" Background="#0E639C" Foreground="White" BorderThickness="0" FontWeight="Bold" Click="BtnGenerateVoice_Click" Margin="0,0,0,8"/>
+
+                            <Grid Margin="0,0,0,12">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <Button Grid.Column="0" Content="▶ Nghe Thử Câu Đầu" Height="28" Background="#2D2D30" Foreground="#4EC9B0" BorderBrush="#4EC9B0" BorderThickness="1" Margin="0,0,4,0" Click="BtnPreviewVoice_Click"/>
+                                <Button Grid.Column="1" Content="📂 Mở Thư Mục MP3" Height="28" Background="#2D2D30" Foreground="#DCDCDC" BorderBrush="#3F3F46" BorderThickness="1" Margin="4,0,0,0" Click="BtnOpenTtsFolder_Click"/>
+                            </Grid>
+
+                            <Separator Background="#3F3F46" Margin="0,0,0,10"/>
+
+                            <TextBlock Text="MẸO KÝ HIỆU TRONG Ô PHỤ ĐỀ:" Foreground="#858585" FontWeight="Bold" FontSize="10.5" Margin="0,0,0,4"/>
+                            <TextBlock Text="• Chèn [ngắt] hoặc ... để giọng đọc dừng lấy hơi tự nhiên.&#x0a;• Chèn [nhấn: từ khóa] để AI nhấn mạnh trọng âm.&#x0a;• Chèn [cao] hoặc [trầm] ở đầu câu để đổi sắc thái.&#x0a;(Mọi thẻ [...] sẽ tự động tàng hình trên màn hình video!)" Foreground="#999999" FontSize="11" TextWrapping="Wrap"/>
+                        </StackPanel>
+                    </ScrollViewer>
+                </TabItem>
+
+                <!-- TAB 4: KIỂU CHỮ & NỀN -->
                 <TabItem Header="Kiểu Chữ">
                     <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="14">
                         <StackPanel>
+                            <CheckBox x:Name="ChkHideSubtitleTab" Content="🙈 Ẩn chữ phụ đề trên màn hình video (Chỉ nghe thuyết minh)" Foreground="#FFCC00" FontWeight="SemiBold" FontSize="11.5" Margin="0,0,0,12" Checked="ChkHideSubtitle_Changed" Unchecked="ChkHideSubtitle_Changed"/>
+
                             <TextBlock Text="ĐỐI TƯỢNG TÙY CHỈNH" Foreground="#4EC9B0" FontWeight="Bold" FontSize="11" Margin="0,0,0,6"/>
                             <ComboBox x:Name="CmbStyleTarget" Height="28" SelectionChanged="CmbStyleTarget_SelectionChanged" Margin="0,0,0,14">
                                 <ComboBoxItem Content="Phụ đề chính" IsSelected="True"/>
@@ -328,7 +420,7 @@
                     </ScrollViewer>
                 </TabItem>
 
-                <!-- TAB 4: BẢN QUYỀN -->
+                <!-- TAB 5: BẢN QUYỀN -->
                 <TabItem Header="Bản Quyền">
                     <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="14">
                         <StackPanel>
