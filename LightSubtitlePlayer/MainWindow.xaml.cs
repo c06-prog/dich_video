@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO;
+using System.IO.Compression;
 using System.Net.Http;
 using System.Security.Cryptography;
 using System.Text;
@@ -70,10 +71,19 @@ namespace LightSubtitlePlayer
             _watermarkFloatTimer.Interval = TimeSpan.FromMilliseconds(40);
             _watermarkFloatTimer.Tick += WatermarkFloatTimer_Tick;
 
-            Loaded += (s, e) =>
+            Loaded += async (s, e) =>
             {
                 UpdateAttributionDisplay();
                 CenterAllBoxesInitial();
+
+                // Tự động kiểm tra và tải ngầm yt-dlp.exe, ffmpeg.exe nếu máy khách chưa có
+                await DependencyBootstrapper.EnsureToolsReadyAsync(new Progress<DownloadProgress>(p =>
+                {
+                    PbDownload.Visibility = p.Percent < 100 ? Visibility.Visible : Visibility.Collapsed;
+                    PbDownload.IsIndeterminate = false;
+                    PbDownload.Value = p.Percent;
+                    LblStatus.Text = p.Message;
+                }));
             };
         }
 
@@ -865,7 +875,6 @@ namespace LightSubtitlePlayer
 
             if (saveDlg.ShowDialog() != true) return;
 
-            // Nếu bật lồng tiếng AI mà chưa tạo file .mp3 nào (nhưng đã có phụ đề), hỏi người dùng có muốn tạo tự động không
             bool includeVoice = ChkEnableVoiceover.IsChecked == true;
             bool hasGeneratedAudio = _subtitles.Exists(x => !string.IsNullOrEmpty(x.AudioFilePath) && File.Exists(x.AudioFilePath));
 
@@ -888,7 +897,6 @@ namespace LightSubtitlePlayer
                 }
             }
 
-            // Tạm dừng phát để giải phóng tài nguyên
             BtnPause_Click(sender, e);
 
             var exportOptions = new ExportOptions
@@ -1423,7 +1431,6 @@ namespace LightSubtitlePlayer
                     string tempFolder = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "TtsCache");
                     if (!Directory.Exists(tempFolder)) Directory.CreateDirectory(tempFolder);
 
-                    // 1. Lưu file SRT sạch (không chứa thẻ [ngắt], [nhấn]) để đốt vào video
                     string tempSrtPath = System.IO.Path.Combine(tempFolder, "export_clean_sub.srt");
                     if (options.BurnSubtitles && options.Subtitles.Count > 0)
                     {
@@ -1431,7 +1438,6 @@ namespace LightSubtitlePlayer
                         File.WriteAllText(tempSrtPath, cleanSrt, new UTF8Encoding(true));
                     }
 
-                    // 2. Kiểm tra danh sách các câu phụ đề có file âm thanh lồng tiếng AI (.mp3)
                     var voicedItems = new List<SubtitleItem>();
                     if (options.MixVoiceover)
                     {
@@ -1447,23 +1453,19 @@ namespace LightSubtitlePlayer
                     StringBuilder args = new();
                     args.Append($"-y -i \"{options.InputVideoPath}\" ");
 
-                    // Thêm các file mp3 làm input cho FFmpeg
                     foreach (var vItem in voicedItems)
                     {
                         args.Append($"-i \"{vItem.AudioFilePath}\" ");
                     }
 
-                    // 3. Xây dựng bộ lọc Video (Hardsub ASS/SRT styling)
                     string? vfFilter = null;
                     if (options.BurnSubtitles && options.Subtitles.Count > 0)
                     {
-                        // Chuyển đổi đường dẫn Windows sang cú pháp filter của FFmpeg
                         string escapedSrt = tempSrtPath.Replace("\\", "/").Replace(":", "\\:");
                         string assColor = GetAssPrimaryColorHex(options.SubtitleColorIndex);
                         vfFilter = $"subtitles='{escapedSrt}':force_style='FontSize=20,PrimaryColour={assColor},OutlineColour=&H80000000,BorderStyle=3,Outline=1,Shadow=1,MarginV=25'";
                     }
 
-                    // 4. Xây dựng bộ lọc Audio (Trộn âm lượng video gốc + hẹn giờ từng câu giọng AI bằng adelay & amix)
                     if (voicedItems.Count > 0)
                     {
                         StringBuilder filterComplex = new();
@@ -1554,7 +1556,6 @@ namespace LightSubtitlePlayer
 
         private static string GetAssPrimaryColorHex(int colorIndex)
         {
-            // Định dạng mã màu ASS/SSA: &H00BBGGRR
             return colorIndex switch
             {
                 1 => "&H0000D7FF", // Vàng Cinema Gold
@@ -1795,6 +1796,113 @@ Ví dụ: [trầm] Không thể tin được, [ngắt] đây chính là [nhấn:
         {
             if (string.IsNullOrWhiteSpace(input)) return string.Empty;
             return input.Replace("```srt", "").Replace("```", "").Trim();
+        }
+    }
+
+    // =========================================================================
+    // BỘ TỰ ĐỘNG TẢI CÔNG CỤ CẦN THIẾT CHO MÁY KHÁCH (ZERO-INSTALL BOOTSTRAPPER)
+    // =========================================================================
+    public static class DependencyBootstrapper
+    {
+        private static readonly HttpClient _client = new() { Timeout = TimeSpan.FromMinutes(10) };
+
+        // Link tải bản chạy ngay (Standalone Binary) chính thức từ GitHub Releases
+        private const string YtDlpUrl = "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe";
+        private const string FfmpegZipUrl = "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip";
+
+        public static async Task EnsureToolsReadyAsync(IProgress<DownloadProgress>? progress = null)
+        {
+            try
+            {
+                string baseDir = AppDomain.CurrentDomain.BaseDirectory;
+                string ytdlpPath = System.IO.Path.Combine(baseDir, "yt-dlp.exe");
+                string ffmpegPath = System.IO.Path.Combine(baseDir, "ffmpeg.exe");
+
+                // 1. Tự động tải yt-dlp.exe nếu chưa có
+                if (!File.Exists(ytdlpPath))
+                {
+                    progress?.Report(new DownloadProgress { Percent = 10, Message = "Đang tự động tải công cụ tải video (yt-dlp.exe)..." });
+                    await DownloadFileAsync(YtDlpUrl, ytdlpPath, progress, "yt-dlp.exe");
+                }
+
+                // 2. Tự động tải và giải nén ffmpeg.exe nếu chưa có
+                if (!File.Exists(ffmpegPath))
+                {
+                    progress?.Report(new DownloadProgress { Percent = 30, Message = "Đang tự động tải bộ xử lý video (ffmpeg.exe)..." });
+                    string tempZip = System.IO.Path.Combine(baseDir, "ffmpeg_temp.zip");
+                    await DownloadFileAsync(FfmpegZipUrl, tempZip, progress, "FFmpeg");
+
+                    progress?.Report(new DownloadProgress { Percent = 85, Message = "Đang giải nén ffmpeg.exe..." });
+                    await Task.Run(() =>
+                    {
+                        using var archive = ZipFile.OpenRead(tempZip);
+                        foreach (var entry in archive.Entries)
+                        {
+                            if (entry.Name.Equals("ffmpeg.exe", StringComparison.OrdinalIgnoreCase))
+                            {
+                                entry.ExtractToFile(ffmpegPath, true);
+                                break;
+                            }
+                        }
+                    });
+
+                    if (File.Exists(tempZip)) File.Delete(tempZip);
+                }
+
+                // 3. Tự động kiểm tra gói giọng đọc AI (edge-tts) nếu máy có Python
+                await Task.Run(() =>
+                {
+                    try
+                    {
+                        var psi = new ProcessStartInfo
+                        {
+                            FileName = "python",
+                            Arguments = "-m pip install edge-tts --quiet",
+                            CreateNoWindow = true,
+                            UseShellExecute = false
+                        };
+                        using var p = Process.Start(psi);
+                        p?.WaitForExit(10000);
+                    }
+                    catch { }
+                });
+
+                progress?.Report(new DownloadProgress { Percent = 100, Message = "Sẵn sàng! Mọi công cụ (yt-dlp, FFmpeg, AI) đã đầy đủ." });
+            }
+            catch (Exception ex)
+            {
+                progress?.Report(new DownloadProgress { Percent = 100, Message = $"Lưu ý: Chưa tải đủ công cụ phụ trợ ({ex.Message})." });
+            }
+        }
+
+        private static async Task DownloadFileAsync(string url, string destinationPath, IProgress<DownloadProgress>? progress, string toolName)
+        {
+            using var response = await _client.GetAsync(url, HttpCompletionOption.ResponseHeadersRead);
+            response.EnsureSuccessStatusCode();
+
+            long? totalBytes = response.Content.Headers.ContentLength;
+            await using var contentStream = await response.Content.ReadAsStreamAsync();
+            await using var fileStream = new FileStream(destinationPath, FileMode.Create, FileAccess.Write, FileShare.None, 81920, true);
+
+            byte[] buffer = new byte[81920];
+            long totalRead = 0;
+            int bytesRead;
+
+            while ((bytesRead = await contentStream.ReadAsync(buffer)) > 0)
+            {
+                await fileStream.WriteAsync(buffer.AsMemory(0, bytesRead));
+                totalRead += bytesRead;
+
+                if (totalBytes.HasValue && totalBytes.Value > 0)
+                {
+                    double pct = (totalRead * 100.0) / totalBytes.Value;
+                    progress?.Report(new DownloadProgress
+                    {
+                        Percent = pct,
+                        Message = $"Đang tự động tải {toolName}: {pct:0}% ({totalRead / 1024 / 1024} MB)"
+                    });
+                }
+            }
         }
     }
 }
